@@ -35,6 +35,7 @@ import java.util.Date;
 import java.util.Arrays;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.Collections;
 
 import java.util.zip.*;
 import java.net.*;
@@ -1080,7 +1081,7 @@ public class SockIOPool {
 		}
 
 		Map<SockIO,Long> sockets =
-			new IdentityHashMap<SockIO,Long>();
+				Collections.synchronizedMap(new IdentityHashMap<SockIO,Long>());
 
 		sockets.put( socket, new Long( System.currentTimeMillis() ) );
 		pool.put( host, sockets );

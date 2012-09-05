@@ -1020,28 +1020,38 @@ public class SockIOPool {
 
 				if ( aSockets != null && !aSockets.isEmpty() ) {
 
-					for ( Iterator<SockIO> i = aSockets.keySet().iterator(); i.hasNext(); ) {
-						SockIO socket = i.next();
+					// We can't use iterator.remove on an IdentityHashMap due to bug 6612102 so let's get the removeSet and remove them later.
+					Set<SockIO> removeSet = Collections.newSetFromMap(new IdentityHashMap());
+					try {
+						for ( Iterator<SockIO> i = aSockets.keySet().iterator(); i.hasNext(); ) {
+							SockIO socket = i.next();
 
-						if ( socket.isConnected() ) {
-							if ( log.isDebugEnabled() )
-								log.debug( "++++ moving socket for host (" + host + ") to busy pool ... socket: " + socket );
+							if ( socket.isConnected() ) {
+								if ( log.isDebugEnabled() )
+									log.debug( "++++ moving socket for host (" + host + ") to busy pool ... socket: " + socket );
 
-							// remove from avail pool
-							i.remove();
+								// remove from avail pool
+								// i.remove();
+								removeSet.add(socket);
 
-							// add to busy pool
-							addSocketToPool( busyPool, host, socket );
+								// add to busy pool
+								addSocketToPool( busyPool, host, socket );
 
-							// return socket
-							return socket;
+								// return socket
+								return socket;
+							}
+							else {
+								// add to deadpool for later reaping
+								deadPool.put( socket, ZERO );
+
+								// remove from avail pool
+								// i.remove();
+								removeSet.add(socket);
+							}
 						}
-						else {
-							// add to deadpool for later reaping
-							deadPool.put( socket, ZERO );
-
-							// remove from avail pool
-							i.remove();
+					} finally {
+						for (SockIO socket:removeSet){
+							aSockets.remove(socket);
 						}
 					}
 				}
@@ -1120,17 +1130,26 @@ public class SockIOPool {
 			Map<SockIO,Long> sockets = pool.get( host );
 
 			if ( sockets != null && sockets.size() > 0 ) {
-				for ( Iterator<SockIO> i = sockets.keySet().iterator(); i.hasNext(); ) {
-					SockIO socket = i.next();
-					try {
-						socket.trueClose();
-					}
-					catch ( IOException ioe ) {
-						log.error( "++++ failed to close socket: " + ioe.getMessage() );
-					}
+				// We can't use iterator.remove on an IdentityHashMap due to bug 6612102 so let's get the removeSet and remove them later.
+				Set<SockIO> removeSet = Collections.newSetFromMap(new IdentityHashMap());
+				try {
+					for ( Iterator<SockIO> i = sockets.keySet().iterator(); i.hasNext(); ) {
+						SockIO socket = i.next();
+						try {
+							socket.trueClose();
+						}
+						catch ( IOException ioe ) {
+							log.error( "++++ failed to close socket: " + ioe.getMessage() );
+						}
 
-					i.remove();
-					socket = null;
+						// i.remove();
+						removeSet.add(socket);
+						socket = null;
+					}
+				} finally {
+					for (SockIO socket:removeSet){
+						sockets.remove(socket);
+					}
 				}
 			}
 		}
@@ -1195,18 +1214,27 @@ public class SockIOPool {
 			 String host = i.next();
 			 Map<SockIO,Long> sockets = pool.get( host );
 
-			 for ( Iterator<SockIO> j = sockets.keySet().iterator(); j.hasNext(); ) {
-				 SockIO socket = j.next();
+			 // We can't use iterator.remove on an IdentityHashMap due to bug 6612102 so let's get the removeSet and remove them later.
+			 Set<SockIO> removeSet = Collections.newSetFromMap(new IdentityHashMap());
+			 try {
+				  for ( Iterator<SockIO> j = sockets.keySet().iterator(); j.hasNext(); ) {
+					 SockIO socket = j.next();
 
-				 try {
-					 socket.trueClose();
-				 }
-				 catch ( IOException ioe ) {
-					 log.error( "++++ failed to trueClose socket: " + socket.toString() + " for host: " + host );
-				 }
+					 try {
+						 socket.trueClose();
+					 }
+					 catch ( IOException ioe ) {
+						 log.error( "++++ failed to trueClose socket: " + socket.toString() + " for host: " + host );
+					 }
 
-				 j.remove();
-				 socket = null;
+					 // j.remove();
+					 removeSet.add(socket);
+					 socket = null;
+				 }
+			 } finally {
+				 for (SockIO socket:removeSet){
+					 sockets.remove(socket);
+				 }
 			 }
 		 }
 	}
@@ -1367,25 +1395,34 @@ public class SockIOPool {
 					if ( log.isDebugEnabled() )
 						log.debug( "++++ need to remove " + needToClose + " spare sockets for pool for host: " + host );
 
-					for ( Iterator<SockIO> j = sockets.keySet().iterator(); j.hasNext(); ) {
-						if ( needToClose <= 0 )
-							break;
+					// We can't use iterator.remove on an IdentityHashMap due to bug 6612102 so let's get the removeSet and remove them later.
+					Set<SockIO> removeSet = Collections.newSetFromMap(new IdentityHashMap());
+					try {
+							for ( Iterator<SockIO> j = sockets.keySet().iterator(); j.hasNext(); ) {
+							if ( needToClose <= 0 )
+								break;
 
-						// remove stale entries
-						SockIO socket = j.next();
-						long expire   = sockets.get( socket ).longValue();
+							// remove stale entries
+							SockIO socket = j.next();
+							long expire   = sockets.get( socket ).longValue();
 
-						// if past idle time
-						// then close socket
-						// and remove from pool
-						if ( (expire + maxIdle) < System.currentTimeMillis() ) {
-							if ( log.isDebugEnabled() )
-								log.debug( "+++ removing stale entry from pool as it is past its idle timeout and pool is over max spare" );
+							// if past idle time
+							// then close socket
+							// and remove from pool
+							if ( (expire + maxIdle) < System.currentTimeMillis() ) {
+								if ( log.isDebugEnabled() )
+									log.debug( "+++ removing stale entry from pool as it is past its idle timeout and pool is over max spare" );
 
-							// remove from the availPool
-							deadPool.put( socket, ZERO );
-							j.remove();
-							needToClose--;
+								// remove from the availPool
+								deadPool.put( socket, ZERO );
+								// j.remove();
+								removeSet.add(socket);
+								needToClose--;
+							}
+						}
+					} finally {
+						for (SockIO socket:removeSet){
+							sockets.remove(socket);
 						}
 					}
 				}
@@ -1401,21 +1438,30 @@ public class SockIOPool {
 				if ( log.isDebugEnabled() )
 					log.debug( "++++ Size of busy pool for host (" + host + ")  = " + sockets.size() );
 
-				// loop through all connections and check to see if we have any hung connections
-				for ( Iterator<SockIO> j = sockets.keySet().iterator(); j.hasNext(); ) {
-					// remove stale entries
-					SockIO socket = j.next();
-					long hungTime = sockets.get( socket ).longValue();
+				// We can't use iterator.remove on an IdentityHashMap due to bug 6612102 so let's get the removeSet and remove them later.
+				Set<SockIO> removeSet = Collections.newSetFromMap(new IdentityHashMap());
+				try {
+					// loop through all connections and check to see if we have any hung connections
+					for ( Iterator<SockIO> j = sockets.keySet().iterator(); j.hasNext(); ) {
+						// remove stale entries
+						SockIO socket = j.next();
+						long hungTime = sockets.get( socket ).longValue();
 
-					// if past max busy time
-					// then close socket
-					// and remove from pool
-					if ( (hungTime + maxBusyTime) < System.currentTimeMillis() ) {
-						log.error( "+++ removing potentially hung connection from busy pool ... socket in pool for " + (System.currentTimeMillis() - hungTime) + "ms" );
+						// if past max busy time
+						// then close socket
+						// and remove from pool
+						if ( (hungTime + maxBusyTime) < System.currentTimeMillis() ) {
+							log.error( "+++ removing potentially hung connection from busy pool ... socket in pool for " + (System.currentTimeMillis() - hungTime) + "ms" );
 
-						// remove from the busy pool
-						deadPool.put( socket, ZERO );
-						j.remove();
+							// remove from the busy pool
+							deadPool.put( socket, ZERO );
+							// j.remove();
+							removeSet.add(socket);
+						}
+					}
+				} finally {
+					for (SockIO socket:removeSet){
+						sockets.remove(socket);
 					}
 				}
 			}
